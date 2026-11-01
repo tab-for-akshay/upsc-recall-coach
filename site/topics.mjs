@@ -492,7 +492,7 @@ export const TOPICS = [
 },
 {
 "id": "forestry-gs-art-culture",
-"subject": "Forestry/GS",
+"subject": "General Studies",
 "topic": "Art & culture",
 "videos": [
 {
@@ -527,7 +527,7 @@ export const TOPICS = [
 },
 {
 "id": "forestry-gs-csat-maths",
-"subject": "Forestry/GS",
+"subject": "General Studies",
 "topic": "CSAT & maths",
 "videos": [
 {
@@ -562,7 +562,7 @@ export const TOPICS = [
 },
 {
 "id": "forestry-gs-economy",
-"subject": "Forestry/GS",
+"subject": "General Studies",
 "topic": "Economy",
 "videos": [
 {
@@ -597,7 +597,7 @@ export const TOPICS = [
 },
 {
 "id": "forestry-gs-environment-ecology",
-"subject": "Forestry/GS",
+"subject": "General Studies",
 "topic": "Environment & ecology",
 "videos": [
 {
@@ -632,7 +632,7 @@ export const TOPICS = [
 },
 {
 "id": "forestry-gs-forestry",
-"subject": "Forestry/GS",
+"subject": "General Studies",
 "topic": "Forestry",
 "videos": [
 {
@@ -653,7 +653,7 @@ export const TOPICS = [
 },
 {
 "id": "forestry-gs-geography",
-"subject": "Forestry/GS",
+"subject": "General Studies",
 "topic": "Geography",
 "videos": [
 {
@@ -688,7 +688,7 @@ export const TOPICS = [
 },
 {
 "id": "forestry-gs-history",
-"subject": "Forestry/GS",
+"subject": "General Studies",
 "topic": "History",
 "videos": [
 {
@@ -723,7 +723,7 @@ export const TOPICS = [
 },
 {
 "id": "forestry-gs-international-relations",
-"subject": "Forestry/GS",
+"subject": "General Studies",
 "topic": "International relations",
 "videos": [
 {
@@ -758,7 +758,7 @@ export const TOPICS = [
 },
 {
 "id": "forestry-gs-polity",
-"subject": "Forestry/GS",
+"subject": "General Studies",
 "topic": "Polity",
 "videos": [
 {
@@ -793,7 +793,7 @@ export const TOPICS = [
 },
 {
 "id": "forestry-gs-prelims",
-"subject": "Forestry/GS",
+"subject": "General Studies",
 "topic": "Prelims",
 "videos": [
 {
@@ -828,7 +828,7 @@ export const TOPICS = [
 },
 {
 "id": "forestry-gs-science-tech",
-"subject": "Forestry/GS",
+"subject": "General Studies",
 "topic": "Science & tech",
 "videos": [
 {
@@ -856,7 +856,7 @@ export const TOPICS = [
 },
 {
 "id": "forestry-gs-society",
-"subject": "Forestry/GS",
+"subject": "General Studies",
 "topic": "Society",
 "videos": [
 {

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { blobIdFromU256, memoryText, parseMemory, buildPlan, baselinePlan, validQuiz, validLearner, DISCLOSURE } from '../site/worker.mjs';
+import { bankQuiz, parseJsonLoose, blobIdFromU256, quizTarget, intervalDays, coachFacts, memoryText, parseMemory, buildPlan, baselinePlan, validQuiz, validLearner, DISCLOSURE } from '../site/worker.mjs';
 import { TOPICS } from '../site/topics.mjs';
 const T = TOPICS[0].id, U = TOPICS[1].id;
 test('memory text round-trips through the parser', () => {
@@ -40,4 +40,49 @@ test('learner ids are restricted', () => { assert.equal(validLearner('demo-learn
 test('disclosure line', () => { assert.equal(DISCLOSURE, 'Built by Tab, an AI assistant, for team lead Akshay Wagh.'); });
 test('Walrus blob id from the Sui u256 (checked against a real mainnet blob)', () => {
   assert.equal(blobIdFromU256('78925929933280249411213808944132871287655442901494516550402743863501946195070'), 'foypjco1gycTs92vaJMq65g3lN2pu2nvSMONkkd-fq4');
+});
+test('spacing: weak topics come back sooner, and a due topic outranks a weaker one not yet due', () => {
+  assert.equal(intervalDays(0.25), 1); assert.equal(intervalDays(0.6), 2); assert.equal(intervalDays(0.8), 4); assert.equal(intervalDays(1), 7);
+  const mem = [
+    { text: memoryText({ topicId: T, score: 2, total: 4, date: '2026-11-01' }), blob_id: 'a' },
+    { text: memoryText({ topicId: U, score: 0, total: 4, date: '2026-11-05' }), blob_id: 'b' },
+  ];
+  const p = buildPlan(mem, '2026-11-05');
+  assert.equal(p.focus[0].topicId, T); assert.ok(p.focus[0].dueIn <= 0); assert.equal(p.focus[1].dueIn, 1);
+});
+test('recent sessions count more: improvement moves a topic out of focus', () => {
+  const mem = [0, 1, 4, 4].map((s, i) => ({ text: memoryText({ topicId: T, score: s, total: 4, date: '2026-11-0' + (i + 1) }), blob_id: 'x' + i, created_at: '2026-11-0' + (i + 1) }));
+  const p = buildPlan(mem, '2026-11-04'); assert.equal(p.focus.length, 0); assert.equal(p.strong[0].topicId, T);
+});
+test('adaptive quiz: targets the concepts missed most and sets the level from accuracy', () => {
+  const mem = [
+    { text: memoryText({ topicId: T, score: 1, total: 4, missed: ['C4 pathway', 'Kranz anatomy'] }) },
+    { text: memoryText({ topicId: T, score: 1, total: 4, missed: ['C4 pathway'] }) },
+    { text: memoryText({ topicId: U, score: 0, total: 4, missed: ['Other'] }) },
+  ];
+  const q = quizTarget(mem, T); assert.equal(q.level, 'foundation'); assert.deepEqual(q.targeted.slice(0, 2), ['C4 pathway', 'Kranz anatomy']); assert.equal(q.basis, 2);
+  assert.equal(quizTarget([], T).level, 'standard');
+  assert.equal(quizTarget([{ text: memoryText({ topicId: T, score: 4, total: 4 }) }], T).level, 'hard');
+});
+test('coach sees only computed facts, never raw memory text', () => {
+  const p = buildPlan([{ text: memoryText({ topicId: T, score: 1, total: 4, missed: ['A'] }), blob_id: 'b' }]);
+  const f = JSON.stringify(coachFacts(p)); assert.ok(!f.includes('[topic:')); assert.ok(f.includes('"A"'));
+});
+test('flagged questions are recorded and not counted', () => {
+  const s = memoryText({ topicId: T, score: 2, total: 3, flagged: 1 }); assert.match(s, /1 question\(s\) flagged as faulty, not counted/); assert.equal(parseMemory(s).total, 3);
+});
+test('a never-practised topic is always offered once there is history', () => {
+  const p = buildPlan([{ text: memoryText({ topicId: T, score: 1, total: 4 }), blob_id: 'x' }]); assert.ok(p.newToday && p.newToday.topicId !== T);
+});
+test('question bank: 5 well-formed questions for every topic, answers spread across options', async () => {
+  const { BANK } = await import('../site/bank.mjs');
+  for (const t of TOPICS) { assert.equal(BANK[t.id].length, 5, t.id); assert.ok(validQuiz(BANK[t.id]), t.id); }
+  const pos = new Set(Object.values(BANK).flat().map(q => q.answer)); assert.equal(pos.size, 4);
+});
+test('bank quiz puts the concepts you missed first', () => {
+  const q = bankQuiz('botany-plant-physiology', ['Kranz anatomy', 'photorespiration']);
+  assert.equal(q.length, 4); assert.deepEqual(new Set(q.slice(0, 2).map(x => x.concept)), new Set(['Kranz anatomy', 'Photorespiration'])); assert.ok(q[0].repeat && !q[3].repeat);
+});
+test('loose JSON parser survives reasoning text around the JSON', () => {
+  assert.deepEqual(parseJsonLoose('<think>hmm {x}</think> Here: {"a":1}'), { a: 1 });
 });

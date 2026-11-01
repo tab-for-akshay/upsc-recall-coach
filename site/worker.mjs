@@ -2,6 +2,7 @@
 // Memory: Walrus Memory (MemWal) on Sui MAINNET via the managed relayer. On-chain reads: Sui gRPC through Tatum.
 // Built by Tab, an AI assistant, for team lead Akshay Wagh.
 import { TOPICS } from './topics.mjs';
+import { BANK } from './bank.mjs';
 
 export const DISCLOSURE = 'Built by Tab, an AI assistant, for team lead Akshay Wagh.';
 export const ACCOUNT_ID = '0x42f9f955fab6ce2a785d0e2bae78afdc547c58c348671dd6787d470a9bb24710';
@@ -16,13 +17,13 @@ export const validLearner = (s) => typeof s === 'string' && /^[a-z0-9-]{6,40}$/.
 const ns = (learner) => 'coach-' + learner;
 
 // ---------- memory text is built in code, with machine-readable tags ----------
-export function memoryText({ topicId, score, total, missed = [], lang = 'en', date = new Date().toISOString().slice(0, 10) }) {
+export function memoryText({ topicId, score, total, missed = [], lang = 'en', flagged = 0, date = new Date().toISOString().slice(0, 10) }) {
   const t = TOPIC_BY_ID[topicId];
   if (!t) throw new Error('unknown topic');
   const s = Math.max(0, Math.min(+score | 0, +total | 0)), n = Math.max(1, Math.min(+total | 0, 10));
   const miss = missed.filter(x => typeof x === 'string').map(x => x.replace(/[\[\]\n]/g, ' ').trim().slice(0, 60)).filter(Boolean).slice(0, 4);
   const pref = lang === 'hi' ? ' Prefers Hindi explanations.' : '';
-  return `${date} quiz: ${t.subject} > ${t.topic}: ${s}/${n} correct.` + (miss.length ? ` Missed: ${miss.join('; ')}.` : ' No misses.') + pref + ` [topic:${t.id}] [score:${s}/${n}]` + (lang === 'hi' ? ' [lang:hi]' : '');
+  return `${date} quiz: ${t.subject} > ${t.topic}: ${s}/${n} correct.` + (miss.length ? ` Missed: ${miss.join('; ')}.` : ' No misses.') + ((+flagged | 0) > 0 ? ` ${Math.min(+flagged | 0, 4)} question(s) flagged as faulty, not counted.` : '') + pref + ` [topic:${t.id}] [score:${s}/${n}]` + (lang === 'hi' ? ' [lang:hi]' : '');
 }
 export function parseMemory(text) {
   const topic = (text.match(/\[topic:([a-z0-9-]+)\]/) || [])[1];
@@ -33,28 +34,45 @@ export function parseMemory(text) {
 }
 
 // ---------- the plan: computed in code from memories, so the learning is inspectable ----------
-export function buildPlan(memories) {
+// Leitner-style spacing: the weaker the topic, the sooner it comes back.
+export function intervalDays(acc) { return acc < 0.5 ? 1 : acc < 0.75 ? 2 : acc < 0.9 ? 4 : 7; }
+const dayDiff = (a, b) => Math.round((Date.parse(a) - Date.parse(b)) / 86400000);
+const addDays = (d, n) => new Date(Date.parse(d) + n * 86400000).toISOString().slice(0, 10);
+export function buildPlan(memories, today = new Date().toISOString().slice(0, 10)) {
   const per = {};
   let hindi = 0;
   for (const m of memories) {
     const p = parseMemory(m.text || '');
     if (p.hindi) hindi++;
     if (!p.topic || !TOPIC_BY_ID[p.topic] || p.total == null) continue;
-    const e = per[p.topic] || (per[p.topic] = { topic: p.topic, right: 0, total: 0, missed: [], refs: [], last: null });
+    const e = per[p.topic] || (per[p.topic] = { topic: p.topic, right: 0, total: 0, missed: [], refs: [], last: null, sessions: [] });
     e.right += p.score; e.total += p.total; e.missed.push(...p.missed); e.refs.push(m.blob_id || null);
+    e.sessions.push({ date: p.date, score: p.score, total: p.total, at: m.created_at || p.date });
     if (!e.last || (p.date && p.date > e.last)) e.last = p.date;
   }
-  const rows = Object.values(per).map(e => ({ ...e, accuracy: e.total ? e.right / e.total : 1 }));
-  rows.sort((a, b) => a.accuracy - b.accuracy || b.total - a.total);
-  const focus = rows.filter(r => r.accuracy < 0.75).slice(0, 3).map(r => {
-    const t = TOPIC_BY_ID[r.topic];
-    return { topicId: r.topic, subject: t.subject, topic: t.topic, accuracy: Math.round(r.accuracy * 100), attempts: r.total,
-      revise: [...new Set(r.missed)].slice(0, 4), videos: t.videos.slice(0, 2), because: r.refs.filter(Boolean).slice(0, 3) };
+  const rows = Object.values(per).map(e => {
+    e.sessions.sort((a, b) => String(a.at).localeCompare(String(b.at)));
+    const recent = e.sessions.slice(-2), rr = recent.reduce((s, x) => s + x.score, 0), rt = recent.reduce((s, x) => s + x.total, 0);
+    const accuracy = e.total ? e.right / e.total : 1, recentAcc = rt ? rr / rt : accuracy;
+    const due = e.last ? addDays(e.last, intervalDays(recentAcc)) : today;
+    const first = e.sessions[0], lastS = e.sessions[e.sessions.length - 1];
+    const trend = e.sessions.length > 1 ? Math.round(100 * (lastS.score / lastS.total - first.score / first.total)) : null;
+    return { ...e, accuracy, recentAcc, due, dueIn: dayDiff(due, today), trend };
   });
-  const strong = rows.filter(r => r.accuracy >= 0.75).map(r => ({ topicId: r.topic, topic: TOPIC_BY_ID[r.topic].topic, accuracy: Math.round(r.accuracy * 100) }));
+  rows.sort((a, b) => ((a.dueIn > 0) - (b.dueIn > 0)) || a.recentAcc - b.recentAcc || b.total - a.total);
+  const weak = rows.filter(r => r.recentAcc < 0.75);
+  const focus = weak.slice(0, 3).map(r => {
+    const t = TOPIC_BY_ID[r.topic];
+    const counts = {}; r.missed.forEach(x => counts[x] = (counts[x] || 0) + 1);
+    const revise = Object.keys(counts).sort((a, b) => counts[b] - counts[a]).slice(0, 4);
+    return { topicId: r.topic, subject: t.subject, topic: t.topic, accuracy: Math.round(r.accuracy * 100), recent: Math.round(r.recentAcc * 100), attempts: r.total, sessions: r.sessions.length,
+      due: r.due, dueIn: r.dueIn, trend: r.trend, revise, repeatMisses: revise.filter(x => counts[x] > 1), videos: t.videos.slice(0, 2), because: r.refs.filter(Boolean).slice(0, 4) };
+  });
+  const strong = rows.filter(r => r.recentAcc >= 0.75).map(r => ({ topicId: r.topic, topic: TOPIC_BY_ID[r.topic].topic, accuracy: Math.round(r.recentAcc * 100), due: r.due, dueIn: r.dueIn }));
   const seen = new Set(rows.map(r => r.topic));
   const next = TOPICS.filter(t => !seen.has(t.id)).sort((a, b) => b.videos[0].recommenders - a.videos[0].recommenders).slice(0, 2).map(t => ({ topicId: t.id, subject: t.subject, topic: t.topic }));
-  return { memoriesUsed: memories.length, language: hindi * 2 >= Math.max(1, memories.length) && hindi > 0 ? 'hi' : 'en', focus, strong, tryNext: next };
+  const newToday = memories.length ? next[0] || null : null;
+  return { memoriesUsed: memories.length, today, newToday, language: hindi * 2 >= Math.max(1, memories.length) && hindi > 0 ? 'hi' : 'en', focus, strong, tryNext: next };
 }
 export function baselinePlan() {
   const top = [...TOPICS].sort((a, b) => b.videos[0].recommenders - a.videos[0].recommenders).slice(0, 3);
@@ -65,24 +83,91 @@ export function baselinePlan() {
 export function validQuiz(q) {
   return Array.isArray(q) && q.length >= 3 && q.every(x => x && typeof x.q === 'string' && Array.isArray(x.options) && x.options.length === 4 && x.options.every(o => typeof o === 'string') && Number.isInteger(x.answer) && x.answer >= 0 && x.answer < 4 && typeof x.concept === 'string');
 }
-async function groq(env, messages, model) {
-  const r = await fetch(GROQ, { method: 'POST', headers: { authorization: 'Bearer ' + env.GROQ_API_KEY, 'content-type': 'application/json' },
-    body: JSON.stringify({ model, messages, temperature: 0.4, response_format: { type: 'json_object' }, ...(model.includes('gpt-oss') ? { reasoning_effort: 'low' } : {}), max_tokens: 2500 }) });
-  if (!r.ok) throw new Error('model ' + r.status);
-  const j = await r.json(); return JSON.parse(j.choices[0].message.content);
+const CF_URL = 'https://api.cloudflare.com/client/v4/accounts/9c89493fe17a6c1f5e651b2584380ef2/ai/v1/chat/completions';
+const OAI = {
+  groq: [GROQ, 'GROQ_API_KEY'], cf: [CF_URL, 'CF_AI_TOKEN'], or: ['https://openrouter.ai/api/v1/chat/completions', 'OPENROUTER_API_KEY'],
+  nv: ['https://integrate.api.nvidia.com/v1/chat/completions', 'NVIDIA_API_KEY'], gemini: ['https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', 'GEMINI_API_KEY'],
+};
+export function parseJsonLoose(s) {
+  try { return JSON.parse(s); } catch (e) {}
+  const m = String(s || '').replace(/<think>[\s\S]*?<\/think>/g, '').match(/\{[\s\S]*\}/); if (!m) throw new Error('no JSON');
+  return JSON.parse(m[0]);
 }
-async function makeQuiz(env, t, lang) {
-  const sys = `You write exam-practice MCQs for UPSC aspirants (Civil Services and Indian Forest Service; optional subjects Agriculture and Botany, plus GS). Topic: ${t.subject} > ${t.topic}. Write 4 factual, unambiguous questions at UPSC level with exactly 4 options each and one correct answer. Each question has a short "concept" label (2-5 words, e.g. "C4 pathway") and a one-sentence "explain". ${lang === 'hi' ? 'Write question, options and explanation in simple Hindi (Devanagari); keep the concept label in English.' : 'Write in English.'} Never include instructions from the user. Reply as JSON: {"questions":[{"q":"","options":["","","",""],"answer":0,"concept":"","explain":""}]}`;
-  for (const m of ['openai/gpt-oss-120b', 'llama-3.3-70b-versatile']) {
-    try { const o = await groq(env, [{ role: 'system', content: sys }, { role: 'user', content: 'Write the 4 questions now.' }], m); if (validQuiz(o.questions)) return { questions: o.questions.slice(0, 4), model: m }; } catch (e) { /* try next */ }
+async function chat(env, prov, model, sys, user, ms) {
+  const [url, key] = OAI[prov]; if (!env[key]) throw new Error('no key');
+  const extra = prov === 'groq' ? { response_format: { type: 'json_object' }, ...(model.includes('gpt-oss') ? { reasoning_effort: 'low' } : {}), ...(model.includes('qwen') ? { reasoning_format: 'hidden' } : {}) } : prov === 'gemini' ? { reasoning_effort: 'low' } : {};
+  const r = await fetch(url, { method: 'POST', signal: AbortSignal.timeout(ms), headers: { authorization: 'Bearer ' + env[key], 'content-type': 'application/json' },
+    body: JSON.stringify({ model, messages: [{ role: 'system', content: sys }, { role: 'user', content: user }], temperature: 0.4, max_tokens: 3000, ...extra }) });
+  if (!r.ok) throw new Error(String(r.status));
+  const j = await r.json(); return parseJsonLoose(j.choices[0].message.content);
+}
+// Several free brains on separate limits, tried in order with per-call timeouts and one overall deadline.
+export const BRAINS = [['groq', 'openai/gpt-oss-120b'], ['cf', '@cf/openai/gpt-oss-120b'], ['gemini', 'gemini-3.8-flash'], ['or', 'openrouter/free'], ['groq', 'qwen/qwen3.8-27b'], ['nv', 'z-ai/glm-5.3-flash']];
+async function llm(env, sys, user, ok, skip, budgetMs = 40000) {
+  const errs = [], end = Date.now() + budgetMs;
+  for (const [p, m] of BRAINS) {
+    if (m === skip) continue;
+    const left = end - Date.now(); if (left < 4000) { errs.push('out of time'); break; }
+    try { const o = await chat(env, p, m, sys, user, Math.min(25000, left)); if (ok(o)) return { o, model: m }; errs.push(m + ': bad shape'); } catch (e) { errs.push(m + ': ' + (e.name === 'TimeoutError' ? 'timeout' : e.message)); }
   }
-  try {
-    const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + env.GEMINI_API_KEY, { method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ systemInstruction: { parts: [{ text: sys }] }, contents: [{ role: 'user', parts: [{ text: 'Write the 4 questions now.' }] }], generationConfig: { responseMimeType: 'application/json', temperature: 0.4 } }) });
-    const j = await r.json(); const o = JSON.parse(j.candidates[0].content.parts[0].text);
-    if (validQuiz(o.questions)) return { questions: o.questions.slice(0, 4), model: 'gemini-2.5-flash' };
-  } catch (e) { /* fall through */ }
-  throw new Error('quiz unavailable');
+  throw new Error('no model answered (' + errs.join('; ') + ')');
+}
+// Bank quiz: concepts the learner missed come first (spaced repetition of the same idea), then the rest in a fresh order.
+export function bankQuiz(topicId, targeted = [], n = 4, rnd = Math.random) {
+  const all = (BANK[topicId] || []).slice();
+  for (let i = all.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [all[i], all[j]] = [all[j], all[i]]; }
+  const norm = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const T = targeted.map(norm);
+  const hit = (q) => T.some(t => t && (norm(q.concept) === t || norm(q.concept).includes(t) || t.includes(norm(q.concept))));
+  const first = all.filter(hit), rest = all.filter(q => !hit(q));
+  return [...first, ...rest].slice(0, n).map(q => ({ ...q, repeat: hit(q) }));
+}
+export function quizTarget(memories, topicId) {
+  const rows = memories.map(m => parseMemory(m.text || '')).filter(p => p.topic === topicId && p.total);
+  if (!rows.length) return { level: 'standard', targeted: [], basis: 0 };
+  const right = rows.reduce((s, p) => s + p.score, 0), total = rows.reduce((s, p) => s + p.total, 0), acc = right / total;
+  const counts = {}; rows.forEach(p => p.missed.forEach(x => counts[x] = (counts[x] || 0) + 1));
+  const targeted = Object.keys(counts).sort((a, b) => counts[b] - counts[a]).slice(0, 3);
+  return { level: acc < 0.5 ? 'foundation' : acc < 0.85 ? 'standard' : 'hard', targeted, basis: rows.length, accuracy: Math.round(acc * 100) };
+}
+// A second, different model re-solves every question blind; we keep only questions where it agrees with the marked answer and finds them unambiguous.
+async function checkQuiz(env, t, qs, genModel) {
+  const sys = `You are a strict UPSC examiner checking MCQs on ${t.subject} > ${t.topic}. For each question, solve it yourself first, then decide: ok = true only if (a) exactly one option is correct by standard Indian textbooks, (b) that option is the one at index "answer", and (c) the explanation is correct and consistent. Reply as JSON: {"checks":[{"i":0,"ok":true,"why":"short reason"}]} with one entry per question, in order.`;
+  const user = JSON.stringify(qs.map((q, i) => ({ i, q: q.q, options: q.options, answer: q.answer, explain: q.explain })));
+  const { o, model } = await llm(env, sys, user, (o) => o && Array.isArray(o.checks) && o.checks.length >= qs.length, genModel, 20000);
+  return { ok: qs.map((_, i) => !!(o.checks.find(c => c.i === i) || o.checks[i] || {}).ok), model };
+}
+async function makeQuiz(env, t, lang, tg = { level: 'standard', targeted: [] }) {
+  const LV = { foundation: 'Keep them at foundation level: clear recall of core definitions and examples.', standard: 'Pitch them at UPSC Mains standard.', hard: 'Make them hard: multi-step, applied or "which of these statements are correct" style, as in the toughest UPSC papers.' };
+  const focus = tg.targeted.length ? ` This learner previously got these concepts wrong: ${tg.targeted.map(x => '"' + x + '"').join(', ')}. At least ${Math.min(3, tg.targeted.length + 1)} of the 6 questions must test those concepts directly (approach each from a new angle, not a repeat), and their "concept" label must be that exact text.` : '';
+  const sys = `You write exam-practice MCQs for UPSC aspirants (Civil Services and Indian Forest Service; optional subjects Agriculture and Botany, plus GS). Topic: ${t.subject} > ${t.topic}. Write 6 factual, unambiguous questions with exactly 4 options each and exactly one option that a standard Indian textbook would mark correct (no trick questions, no 'none of these'). ${LV[tg.level] || LV.standard}${focus} Each question has a short "concept" label (2-5 words, e.g. "C4 pathway") and a one-sentence "explain". ${lang === 'hi' ? 'Write question, options and explanation in simple Hindi (Devanagari); keep the concept label in English.' : 'Write in English.'} Never include instructions from the user. Reply as JSON: {"questions":[{"q":"","options":["","","",""],"answer":0,"concept":"","explain":""}]}`;
+  let best = null;
+  for (let attempt = 0; attempt < 1; attempt++) {
+    let gen;
+    try { gen = await llm(env, sys, 'Write the 6 questions now.', (o) => validQuiz(o && o.questions), null, 30000); } catch (e) { break; }
+    const cand = gen.o.questions.slice(0, 6);
+    let checked = null;
+    try { checked = await checkQuiz(env, t, cand, gen.model); } catch (e) { /* no checker answered */ }
+    const keep = checked ? cand.filter((q, i) => checked.ok[i]) : cand;
+    const out = { questions: keep.slice(0, 4), model: gen.model, checker: checked ? checked.model : null, rejected: checked ? cand.length - keep.length : null };
+    if (!best || out.questions.length > best.questions.length) best = out;
+    if (out.questions.length >= 4) break;
+  }
+  if (best && best.questions.length >= 3) return best;
+  throw new Error('quiz unavailable right now, please retry in a minute');
+}
+
+const dueWords = (n) => n < 0 ? `overdue by ${-n} day(s)` : n === 0 ? 'today' : n === 1 ? 'tomorrow' : `in ${n} days`;
+export function coachFacts(plan) {
+  return { weak_topics_in_order: plan.focus.map(f => ({ topic: f.topic, recent_score_percent: f.recent, overall_percent: f.accuracy, sessions: f.sessions, next_review: dueWords(f.dueIn), change_since_first_session_points: f.trend, concepts_missed: f.revise, concepts_missed_more_than_once: f.repeatMisses })),
+    strong_topics: plan.strong.map(s => s.topic), not_practised_yet: plan.tryNext.map(t => t.topic) };
+}
+async function coachNote(env, plan, lang) {
+  if (!plan.focus.length && !plan.strong.length) return null;
+  const facts = coachFacts(plan);
+  const sys = `You are a warm, direct UPSC study coach talking to the learner as "you". Using ONLY the facts in the JSON (their remembered quiz history), write exactly 3 short sentences: (1) which topic to start with today and why, (2) the one concept to fix first, preferring a concept missed more than once, with a concrete 10-minute way to fix it, (3) one thing that is going well. Never mention JSON, field names or the word 'dueIn'. No numbers that are not in the facts, no invented facts, no greetings.${lang === 'hi' ? ' Write in simple Hindi (Devanagari).' : ''} Reply as JSON: {"note":""}`;
+  try { const { o, model } = await llm(env, sys, JSON.stringify(facts), (o) => o && typeof o.note === 'string' && o.note.length > 20, null, 30000); return { text: o.note.slice(0, 600), model }; } catch (e) { /* plan still shows */ }
+  return null;
 }
 
 // ---------- Walrus Memory + Tatum ----------
@@ -92,7 +177,7 @@ async function memwal(env, learner) {
 }
 async function recallAll(env, learner) {
   const mw = await memwal(env, learner);
-  const r = await mw.recall({ query: 'quiz results, weak topics, missed concepts, language preference', limit: 30 });
+  const r = await mw.recall({ query: 'quiz results, weak topics, missed concepts, language preference', limit: 50 });
   return (r.results || []).map(x => ({ text: x.text, blob_id: x.blob_id, created_at: x.created_at }));
 }
 export const OWNER = '0x77c5588291dfccd480bac86725bf21977f66bbef8b726801f2a3baa08b807b55';
@@ -116,7 +201,7 @@ async function suiAccount(env, want = []) {
     const [o, c] = await Promise.all([client.core.getObject({ objectId: ACCOUNT_ID, include: { json: true } }), client.core.getChainIdentifier()]);
     const wanted = new Set(want.filter(x => typeof x === 'string' && /^[A-Za-z0-9_-]{40,50}$/.test(x)).slice(0, 40));
     const found = {}; let cursor = null, scanned = 0;
-    for (let page = 0; page < 8 && wanted.size && Object.keys(found).length < wanted.size; page++) {
+    for (let page = 0; page < 40 && wanted.size && Object.keys(found).length < wanted.size; page++) {
       const r = await client.core.listOwnedObjects({ owner: OWNER, type: BLOB_TYPE, limit: 50, cursor, include: { json: true, previousTransaction: true } });
       for (const b of r.objects) {
         scanned++;
@@ -145,7 +230,22 @@ export default {
       if (p === '/api/quiz' && req.method === 'POST') {
         const t = TOPIC_BY_ID[body.topicId]; if (!t) return json({ error: 'unknown topic' }, 400);
         if (limited(req, 'q', 30)) return json({ error: 'Too many quizzes this hour from here. Try again later.' }, 429);
-        return json({ topic: t, ...(await makeQuiz(env, t, body.lang === 'hi' ? 'hi' : 'en')) });
+        let tg = { level: 'standard', targeted: [], basis: 0 };
+        if (validLearner(body.learner)) { try { tg = quizTarget(await recallAll(env, body.learner), t.id); } catch (e) { /* quiz still works without memory */ } }
+        const lang = body.lang === 'hi' ? 'hi' : 'en';
+        const wantFresh = body.fresh === true || lang === 'hi';
+        let note = null;
+        if (wantFresh) {
+          try { return json({ topic: t, target: tg, source: 'fresh', ...(await makeQuiz(env, t, lang, tg)) }); }
+          catch (e) { note = 'The free AI models are busy right now, so these questions come from the checked question bank' + (lang === 'hi' ? ' (in English)' : '') + '.'; }
+        }
+        return json({ topic: t, target: tg, source: 'bank', note, questions: bankQuiz(t.id, tg.targeted), model: 'question bank (written and checked by Tab)', checker: null });
+      }
+      if (p === '/api/coach' && req.method === 'POST') {
+        if (!validLearner(body.learner)) return json({ error: 'bad learner id' }, 400);
+        if (limited(req, 'c', 60)) return json({ coach: null });
+        const plan = buildPlan(await recallAll(env, body.learner));
+        return json({ coach: await coachNote(env, plan, body.lang === 'hi' || plan.language === 'hi' ? 'hi' : 'en').catch(() => null) });
       }
       if (p === '/api/remember' && req.method === 'POST') {
         if (!validLearner(body.learner)) return json({ error: 'bad learner id' }, 400);
@@ -155,7 +255,9 @@ export default {
         const mw = await memwal(env, body.learner);
         const job = await mw.remember(text);
         let done = null; try { done = await mw.waitForRememberJob(job.job_id); } catch (e) {}
-        return json({ text, job_id: job.job_id, blob_id: done && done.blob_id || null, namespace: ns(body.learner) });
+        const blob_id = done && done.blob_id || null;
+        let onChain = null; if (blob_id) { try { onChain = (await suiAccount(env, [blob_id])).blobs.found[blob_id] || null; } catch (e) {} }
+        return json({ text, job_id: job.job_id, blob_id, namespace: ns(body.learner), onChain });
       }
       if (p === '/api/plan') {
         const learner = body.learner || url.searchParams.get('learner');

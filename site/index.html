@@ -5,6 +5,7 @@
 <meta name="description" content="A UPSC practice coach that remembers your weak topics across sessions in Walrus Memory on Sui mainnet, and proves every memory on-chain through Tatum's Sui RPC.">
 <meta property="og:title" content="UPSC Recall Coach">
 <meta property="og:description" content="Remembers your weak topics across sessions. Memory on Walrus (Sui mainnet), receipts read through Tatum.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E%E2%9F%B2%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="/styles.css">
 </head><body>
 <header class="top">
@@ -20,9 +21,9 @@
   <div class="row btns">
     <button id="use" class="ghost">Use this ID</button>
     <button id="demo" class="ghost">Load demo learner</button>
-    <button id="fresh" class="ghost">New ID</button>
+    <button id="newid" class="ghost">New ID</button>
   </div>
-  <p class="small">The ID is your memory key: type it on another phone and your history follows you. Only quiz results are stored (topic, score, missed concepts, language), never your name. Anyone who knows an ID can read its results, so don't use personal details in it.</p>
+  <p class="small">Your ID is your memory key: use it on any phone and your history follows. Keep it private, like a password. <a href="#privacy">What is stored?</a></p>
 </section>
 
 <section class="card" id="planCard">
@@ -39,7 +40,9 @@
   <h2>4-question practice</h2>
   <div class="row"><label for="topic">Topic</label><select id="topic"></select></div>
   <div class="row"><label for="lang">Language</label><select id="lang"><option value="en">English</option><option value="hi">हिन्दी (Hindi)</option></select></div>
+  <label class="chk"><input type="checkbox" id="fresh"> Fresh AI-written questions (slower; Hindi always uses this)</label>
   <button id="start">Start quiz</button>
+  <p class="small">Questions come from a bank of 130 checked questions, the concepts you missed first. Fresh AI questions are re-solved by a second model and dropped if it disagrees. Spot a wrong one anyway? Flag it and it won't count. Saving writes to Sui mainnet, so it is limited to 12 saves an hour.</p>
   <form id="quiz" hidden></form>
   <div id="result" hidden></div>
 </section>
@@ -58,8 +61,10 @@
     <li><b>Quiz</b>: an open-weight model writes 4 MCQs for the topic; the code checks their shape before showing them.</li>
     <li><b>Remember</b>: the result becomes one short memory written by code (no free text, so nobody can inject instructions) and is stored with <b>Walrus Memory</b> through the managed relayer, encrypted, in your learner's own namespace.</li>
     <li><b>Recall</b>: next time, the coach recalls your memories and builds the plan in plain code: weakest topic first, the concepts you missed, videos for them, and the memory each line came from.</li>
+    <li><b>Adapt</b>: the next quiz on a topic is aimed at the concepts you missed before, at a level set by your past accuracy; weak topics come back sooner (1, 2, 4 or 7 days); a coach note explains today's plan from those facts only.</li>
     <li><b>Prove</b>: <b>Tatum's Sui RPC</b> (gRPC) reads the MemWal account object and finds each memory's Blob object on Sui mainnet: object, transaction, size and storage epochs.</li>
   </ol>
+  <p class="small" id="privacy"><b>What is stored:</b> only quiz results (date, topic, score, missed concepts, language), written by code. They are encrypted with SEAL and stored on Walrus, so the bytes on Sui and Walrus are ciphertext; this app's server key decrypts them when you recall. Anyone who knows your learner ID can ask this app for that ID's results, which is why the ID should stay private. The receipts prove each memory exists on Sui mainnet, who owns it and how long it is stored; they cannot show the text, because it is encrypted.</p>
   <p class="small">Videos come from <a href="https://upsc-tube.vercel.app" target="_blank" rel="noopener">UPSC Tube</a>, community-recommended sources per syllabus topic.</p>
 </section>
 </main>
