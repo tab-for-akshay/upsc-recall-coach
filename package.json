@@ -1,0 +1,17 @@
+{
+  "name": "upsc-recall-coach",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test test/core.test.mjs"
+  },
+  "dependencies": {
+    "@grpc/grpc-js": "^1.14.7",
+    "@mysten-incubation/memwal": "^0.1.12",
+    "@mysten/seal": "^1.5.2",
+    "@mysten/sui": "^2.38.0",
+    "@protobuf-ts/grpc-transport": "^2.11.1"
+  }
+}

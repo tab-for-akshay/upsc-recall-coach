@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>UPSC Recall Coach: a study coach that remembers you (Walrus Memory + Tatum)</title>
+<meta name="description" content="A UPSC practice coach that remembers your weak topics across sessions in Walrus Memory on Sui mainnet, and proves every memory on-chain through Tatum's Sui RPC.">
+<meta property="og:title" content="UPSC Recall Coach">
+<meta property="og:description" content="Remembers your weak topics across sessions. Memory on Walrus (Sui mainnet), receipts read through Tatum.">
+<link rel="stylesheet" href="/styles.css">
+</head><body>
+<header class="top">
+  <div class="brand"><span class="logo">⟲</span> <b>UPSC Recall Coach</b></div>
+  <p class="tag">Practice a topic. It remembers what you missed, so the next session starts where you are weak. Every memory is stored on <b>Walrus</b> (Sui mainnet) and checked on-chain through <b>Tatum</b>.</p>
+</header>
+<main>
+<section class="card" id="who">
+  <div class="row">
+    <label for="learner">Your learner ID</label>
+    <input id="learner" autocomplete="off" spellcheck="false" maxlength="40">
+  </div>
+  <div class="row btns">
+    <button id="use" class="ghost">Use this ID</button>
+    <button id="demo" class="ghost">Load demo learner</button>
+    <button id="fresh" class="ghost">New ID</button>
+  </div>
+  <p class="small">The ID is your memory key: type it on another phone and your history follows you. Only quiz results are stored (topic, score, missed concepts, language), never your name. Anyone who knows an ID can read its results, so don't use personal details in it.</p>
+</section>
+
+<section class="card" id="planCard">
+  <h2>Today's plan</h2>
+  <p id="planStatus" class="small">Loading your memory…</p>
+  <div class="cols">
+    <div class="col off"><h3>Without memory</h3><div id="planOff"></div></div>
+    <div class="col on"><h3>With your Walrus memory</h3><div id="planOn"></div></div>
+  </div>
+  <p id="planDiff" class="diff" hidden></p>
+</section>
+
+<section class="card" id="quizCard">
+  <h2>4-question practice</h2>
+  <div class="row"><label for="topic">Topic</label><select id="topic"></select></div>
+  <div class="row"><label for="lang">Language</label><select id="lang"><option value="en">English</option><option value="hi">हिन्दी (Hindi)</option></select></div>
+  <button id="start">Start quiz</button>
+  <form id="quiz" hidden></form>
+  <div id="result" hidden></div>
+</section>
+
+<section class="card" id="receiptsCard">
+  <h2>Memory receipts</h2>
+  <p class="small">Each memory is a Walrus blob, registered as a Blob object on Sui mainnet. This panel looks them up live through <b>Tatum's Sui gRPC gateway</b>, so you can see each one is really on-chain.</p>
+  <button id="verify" class="ghost">Check on-chain now</button>
+  <div id="chain" class="small"></div>
+  <ol id="mems" class="mems"></ol>
+</section>
+
+<section class="card how">
+  <h2>How it works</h2>
+  <ol>
+    <li><b>Quiz</b>: an open-weight model writes 4 MCQs for the topic; the code checks their shape before showing them.</li>
+    <li><b>Remember</b>: the result becomes one short memory written by code (no free text, so nobody can inject instructions) and is stored with <b>Walrus Memory</b> through the managed relayer, encrypted, in your learner's own namespace.</li>
+    <li><b>Recall</b>: next time, the coach recalls your memories and builds the plan in plain code: weakest topic first, the concepts you missed, videos for them, and the memory each line came from.</li>
+    <li><b>Prove</b>: <b>Tatum's Sui RPC</b> (gRPC) reads the MemWal account object and finds each memory's Blob object on Sui mainnet: object, transaction, size and storage epochs.</li>
+  </ol>
+  <p class="small">Videos come from <a href="https://upsc-tube.vercel.app" target="_blank" rel="noopener">UPSC Tube</a>, community-recommended sources per syllabus topic.</p>
+</section>
+</main>
+<footer>
+  <p>Built by Tab, an AI assistant, for team lead Akshay Wagh.</p>
+  <p class="small"><a href="https://github.com/tab-for-akshay/upsc-recall-coach" target="_blank" rel="noopener">Source (MIT)</a> · Total Recall hackathon (Walrus × Tatum) · Practice questions are AI-written: check anything important against your textbook.</p>
+</footer>
+<script src="/app.js" type="module"></script>
+</body></html>
