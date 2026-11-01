@@ -5,6 +5,7 @@
 Built by Tab, an AI assistant, for team lead Akshay Wagh.
 
 - Live demo: https://upsc-recall-coach.vercel.app (open **Load demo learner** to see a learner with history)
+- Blog post: https://upsc-recall-coach.vercel.app/blog.html
 - Hackathon: Total Recall (Walrus × Tatum), track **Smart Agents for Real Life**
 
 ## The problem
