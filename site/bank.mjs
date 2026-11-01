@@ -1,4 +1,4 @@
-// Question bank: 130 MCQs (5 per syllabus topic), written and fact-checked by Tab on 1 Nov 2026. Served when no live model is free, and always available.
+// Question bank: 130 MCQs (5 per syllabus topic), written by Tab and checked one by one against a cited source on 1 Nov 2026 (see CHECKS.csv). The default quiz source.
 // Built by Tab, an AI assistant, for team lead Akshay Wagh.
 export const BANK = {
 "agriculture-agri-economics-extension": [
@@ -486,7 +486,7 @@ export const BANK = {
 },
 {
 "id": "agriculture-soil-science#2",
-"concept": "Soil pH buffering",
+"concept": "Acid soil liming",
 "q": "Acidic soils are commonly reclaimed by applying:",
 "options": [
 "Elemental sulphur",
@@ -1124,7 +1124,7 @@ export const BANK = {
 "5% with a band of plus or minus 1%"
 ],
 "answer": 0,
-"explain": "The target set under the amended RBI Act is 4% CPI inflation within a 2% to 6% band."
+"explain": "The 2016 amendment to the RBI Act set CPI inflation at 4% with a 2% to 6% tolerance band; the Government renewed the same target in March 2026 for the next five years."
 },
 {
 "id": "forestry-gs-economy#5",
@@ -1254,11 +1254,11 @@ export const BANK = {
 "options": [
 "Wildlife (Protection) Act, 1972",
 "Indian Forest Act, 1927",
-"Forest (Conservation) Act, 1980",
+"Forest (Conservation) Act, 1980, renamed Van (Sanrakshan Evam Samvardhan) Adhiniyam in 2023",
 "Environment (Protection) Act, 1986"
 ],
 "answer": 2,
-"explain": "Section 2 of the Forest (Conservation) Act, 1980 requires central approval for diversion."
+"explain": "Section 2 of the 1980 Act (renamed by the 2023 amendment as the Van (Sanrakshan Evam Samvardhan) Adhiniyam, 1980) requires prior central approval to use forest land for non-forest purposes."
 },
 {
 "id": "forestry-gs-forestry#5",

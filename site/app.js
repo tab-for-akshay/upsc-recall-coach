@@ -3,9 +3,10 @@ const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const DEMO = 'demo-aspirant-01';
 const okId = (s) => /^[a-z0-9-]{6,40}$/.test(s);
-const newId = () => 'aspirant-' + Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => (b % 36).toString(36)).join('');
-let learner = new URLSearchParams(location.search).get('learner') || localStorage.getItem('rc_learner') || newId();
-if (!okId(learner)) learner = newId();
+const SIGNED = /^(asp|dmo)-[a-z0-9]{8}-[a-f0-9]{10}$/; // ids minted (and signed) by the server can save
+const mint = async (demo) => (await api('/api/learner', { demo: !!demo })).learner;
+let learner = new URLSearchParams(location.search).get('learner') || localStorage.getItem('rc_learner') || '';
+const label = (s) => String(s).replace(/Forestry\/GS/g, 'General Studies');
 let topics = [], plan = null, memories = [], quiz = null;
 
 async function api(path, body) {
@@ -16,7 +17,7 @@ async function api(path, body) {
 }
 function setLearner(id) {
   learner = id; localStorage.setItem('rc_learner', id); $('#learner').value = id;
-  history.replaceState(null, '', id === DEMO ? '?learner=' + DEMO : location.pathname);
+  history.replaceState(null, '', location.pathname);
   loadPlan();
 }
 const vid = (v) => `<a href="${esc(v.url)}" target="_blank" rel="noopener">${esc(v.title)}</a>`;
@@ -53,7 +54,7 @@ function renderMems(found) {
     const f = found && found[m.blob_id];
     const chain = !found ? '' : f ? `<br><span class="ok">✓ on Sui mainnet</span> · object <a class="mono" href="https://suiscan.xyz/mainnet/object/${esc(f.suiObject)}" target="_blank" rel="noopener">${esc(f.suiObject.slice(0, 10))}…</a> · tx <a class="mono" href="https://suiscan.xyz/mainnet/tx/${esc(f.tx)}" target="_blank" rel="noopener">${esc(String(f.tx).slice(0, 8))}…</a> · ${f.size} bytes · certified epoch ${esc(f.certifiedEpoch)}, stored to epoch ${esc(f.storedUntilEpoch)}`
       : `<br><span class="no">not found in the first pages of Blob objects yet</span>`;
-    return `<li id="m-${esc(m.blob_id)}">${esc(m.text.replace(/\s*\[[^\]]*\]/g, ''))}<br><span class="mono small">blob ${esc(m.blob_id)}</span>${chain}</li>`;
+    return `<li id="m-${esc(m.blob_id)}">${m.from === 'demo history' ? '<span class="tag">demo history</span> ' : ''}${esc(label(m.text.replace(/\s*\[[^\]]*\]/g, '')))}<br><span class="mono small">blob ${esc(m.blob_id)}</span>${chain}</li>`;
   }).join('') || '<li class="small">No memories yet.</li>';
 }
 async function loadPlan(prevOn) {
@@ -74,7 +75,7 @@ async function verify() {
   const b = $('#verify'); b.disabled = true; $('#chain').innerHTML = '<span class="spin"></span>Reading Sui mainnet through Tatum…';
   try {
     const r = await api('/api/receipts', { blobIds: memories.map((m) => m.blob_id) });
-    $('#chain').innerHTML = `Read via ${esc(r.via)} in ${r.ms} ms. Chain ${esc(r.chainIdentifier)}. MemWal account <a class="mono" href="https://suiscan.xyz/mainnet/object/${esc(r.account.objectId)}" target="_blank" rel="noopener">${esc(r.account.objectId.slice(0, 10))}…</a> (version ${esc(r.account.version)}, ${r.account.active ? 'active' : 'inactive'}, ${r.account.delegateKeys} delegate key). <b>${r.blobs.verified} of ${r.blobs.asked}</b> memories found as Blob objects on Sui.`;
+    $('#chain').innerHTML = `Read via ${esc(r.via)} in ${r.ms} ms. Chain ${esc(r.chainIdentifier)}. MemWal account <a class="mono" href="https://suiscan.xyz/mainnet/object/${esc(r.account.objectId)}" target="_blank" rel="noopener">${esc(r.account.objectId.slice(0, 10))}…</a> (version ${esc(r.account.version)}, ${r.account.active ? 'active' : 'inactive'}, ${r.account.delegateKeys} delegate key). <b>${r.blobs.verified} of ${r.blobs.asked}</b> memories found as Blob objects on Sui.<br><span class="small">Each line below is the text the Walrus Memory SDK decrypted from that blob when it recalled it. The blob itself holds only encrypted bytes, so the Sui object proves the write happened and how long Walrus stores it; the readable text comes from decryption, not from the chain.</span>`;
     renderMems(r.blobs.found);
   } catch (e) { $('#chain').textContent = 'Check failed: ' + e.message; }
   b.disabled = false;
@@ -87,7 +88,7 @@ async function startQuiz() {
     quiz = await api('/api/quiz', { topicId: $('#topic').value, lang: $('#lang').value, learner, fresh: $('#fresh').checked });
     f.innerHTML = quiz.questions.map((q, i) => `<div class="q"><p>${i + 1}. ${esc(q.q)}${q.repeat ? ' <span class="acc">you missed this concept before</span>' : ''}</p>` + q.options.map((o, j) =>
       `<label class="opt"><input type="radio" name="q${i}" value="${j}"> <span>${esc(o)}</span></label>`).join('') + `<button type="button" class="flag" data-flag="${i}">⚑ This question looks wrong</button></div>`).join('') +
-      `<button type="submit">Check answers and remember</button> <span class="small">${quiz.source === 'bank' ? 'From the checked question bank' : 'Written by ' + esc(quiz.model)}${quiz.checker ? `, checked by ${esc(quiz.checker)}${quiz.rejected ? ` (${quiz.rejected} rejected)` : ''}` : ''}</span>`;
+      `<button type="submit">Check answers and remember</button> <span class="small">${quiz.source === 'bank' ? 'From the checked question bank' : 'Written by ' + esc(quiz.model)}${quiz.source === 'bank' ? '' : quiz.checker ? `. Checker ${esc(quiz.checker)} re-solved all ${quiz.generated} blind: kept ${quiz.generated - quiz.rejected}, rejected ${quiz.rejected}` : '. No checker model answered, so treat these as unchecked and flag anything odd'}</span>`;
     const tg = quiz.target || {};
     if (quiz.note) f.insertAdjacentHTML('afterbegin', `<p class="small">${esc(quiz.note)}</p>`);
     f.insertAdjacentHTML('afterbegin', `<p class="small">${tg.basis ? `Adapted from ${tg.basis} remembered session${tg.basis > 1 ? 's' : ''} on this topic (${tg.accuracy}%): <b>${esc(tg.level)}</b> level${tg.targeted.length ? `, starting with what you missed: ${tg.targeted.map(esc).join(', ')}` : ''}.` : 'First time on this topic for this ID: standard level.'}</p>`);
@@ -116,19 +117,22 @@ async function submitQuiz(ev) {
   r.innerHTML = `<p><b>${score}/${total}.</b> ${missed.length ? 'Missed: ' + missed.map(esc).join(', ') + '.' : 'No misses.'}</p><p><span class="spin"></span>Saving this to Walrus Memory on Sui mainnet (about 20 s)…</p>`;
   const prevOn = plan && plan.withMemory;
   try {
+    let moved = '';
+    if (!SIGNED.test(learner)) { const from = learner; learner = await mint(from === DEMO); localStorage.setItem('rc_learner', learner); $('#learner').value = learner; moved = from === DEMO ? 'The demo history is read-only, so this saved to your own copy of it. ' : 'That ID was not issued here, so this saved under a new learner ID. '; }
     const m = await api('/api/remember', { learner, topicId: quiz.topic.id, score, total, missed, flagged, lang: $('#lang').value });
     const oc = m.onChain;
-    r.innerHTML = `<p><b>${score}/${total}.</b> Remembered: “${esc(m.text.replace(/\s*\[[^\]]*\]/g, ''))}”</p><p class="small">Walrus blob <span class="mono">${esc(m.blob_id || 'pending')}</span>` +
+    r.innerHTML = `<p><b>${score}/${total}.</b> ${esc(moved)}Remembered: “${esc(label(m.text.replace(/\s*\[[^\]]*\]/g, '')))}”</p><p class="small">Walrus blob <span class="mono">${esc(m.blob_id || 'pending')}</span>` +
       (oc ? `<br><span class="ok">✓ already on Sui mainnet</span> (read via Tatum): object <a class="mono" href="https://suiscan.xyz/mainnet/object/${esc(oc.suiObject)}" target="_blank" rel="noopener">${esc(oc.suiObject.slice(0, 10))}…</a>, tx <a class="mono" href="https://suiscan.xyz/mainnet/tx/${esc(oc.tx)}" target="_blank" rel="noopener">${esc(String(oc.tx).slice(0, 8))}…</a>` : '') + `</p>`;
     quiz = null; await loadPlan(prevOn); $('#planCard').scrollIntoView({ behavior: 'smooth' }); verify();
   } catch (e) { r.innerHTML += `<p class="no">Not saved: ${esc(e.message)}</p>`; }
 }
 document.addEventListener('click', (e) => { const fl = e.target.closest('[data-flag]'); if (fl) { const box = fl.closest('.q'); box.classList.toggle('flagged'); fl.classList.toggle('on'); fl.textContent = box.classList.contains('flagged') ? '⚑ Flagged: will not count (tap to undo)' : '⚑ This question looks wrong'; return; } const qb = e.target.closest('[data-quiz]'); if (qb) { $('#topic').value = qb.dataset.quiz; $('#quizCard').scrollIntoView({ behavior: 'smooth' }); startQuiz(); return; } const c = e.target.closest('.chip'); if (c) { const el = document.getElementById('m-' + c.dataset.blob); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); verify(); } } });
 $('#use').onclick = () => { const v = $('#learner').value.trim().toLowerCase(); if (okId(v)) setLearner(v); else alert('Use 6–40 characters: a–z, 0–9 and dashes.'); };
-$('#demo').onclick = () => setLearner(DEMO);
-$('#newid').onclick = () => setLearner(newId());
+$('#demo').onclick = async () => { try { setLearner(await mint(true)); } catch (e) { setLearner(DEMO); } };
+$('#newid').onclick = async () => { try { setLearner(await mint(false)); } catch (e) { alert('Could not start a new learner: ' + e.message); } };
 $('#start').onclick = startQuiz; $('#quiz').onsubmit = submitQuiz; $('#verify').onclick = verify;
 (async () => {
+  if (!okId(learner)) { try { learner = await mint(false); } catch (e) { learner = DEMO; } }
   $('#learner').value = learner; localStorage.setItem('rc_learner', learner);
   try { topics = (await api('/api/topics')).topics; } catch (e) { topics = []; }
   const g = {}; topics.forEach((t) => (g[t.subject] ||= []).push(t));

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { bankQuiz, parseJsonLoose, blobIdFromU256, quizTarget, intervalDays, coachFacts, memoryText, parseMemory, buildPlan, baselinePlan, validQuiz, validLearner, DISCLOSURE } from '../site/worker.mjs';
+import { bankQuiz, parseJsonLoose, blobIdFromU256, quizTarget, intervalDays, coachFacts, memoryText, parseMemory, buildPlan, baselinePlan, validQuiz, validLearner, DISCLOSURE, mintLearner, canWrite, noteLooksClean, templateNote, DEMO_LEARNER } from '../site/worker.mjs';
 import { TOPICS } from '../site/topics.mjs';
 const T = TOPICS[0].id, U = TOPICS[1].id;
 test('memory text round-trips through the parser', () => {
@@ -85,4 +85,22 @@ test('bank quiz puts the concepts you missed first', () => {
 });
 test('loose JSON parser survives reasoning text around the JSON', () => {
   assert.deepEqual(parseJsonLoose('<think>hmm {x}</think> Here: {"a":1}'), { a: 1 });
+});
+
+test('only server-minted, signed learner ids can write; the demo history is read-only', async () => {
+  const env = { LEARNER_SECRET: 'test-secret' };
+  const a = await mintLearner(env, false), d = await mintLearner(env, true);
+  assert.match(a, /^asp-[a-z0-9]{8}-[a-f0-9]{10}$/); assert.match(d, /^dmo-/);
+  assert.ok(validLearner(a) && validLearner(d));
+  assert.equal(await canWrite(env, a), true); assert.equal(await canWrite(env, d), true);
+  assert.equal(await canWrite(env, DEMO_LEARNER), false);
+  assert.equal(await canWrite(env, a.slice(0, -1) + (a.endsWith('0') ? '1' : '0')), false);
+  assert.equal(await canWrite({ LEARNER_SECRET: 'other' }, a), false);
+});
+test('coach note guard rejects broken words and field names; template note uses plan facts only', () => {
+  assert.equal(noteLooksClean('You have already established strong s in Polity.', 'en'), false);
+  assert.equal(noteLooksClean('Your dueIn is today.', 'en'), false);
+  assert.equal(noteLooksClean('Start with Plant physiology today: fix the C4 pathway first. Polity is going well.', 'en'), true);
+  const n = templateNote({ focus: [{ topic: 'Plant physiology', recent: 33, revise: ['C4 pathway'] }], strong: [{ topic: 'Polity', accuracy: 100 }] });
+  assert.equal(n.text, 'Start with Plant physiology: your recent score there is 33%. Fix "C4 pathway" first: read the explanation again, then take a quiz on Plant physiology. Polity is going well (100%).');
 });

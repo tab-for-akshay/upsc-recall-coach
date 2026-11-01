@@ -23,7 +23,7 @@
     <button id="demo" class="ghost">Load demo learner</button>
     <button id="newid" class="ghost">New ID</button>
   </div>
-  <p class="small">Your ID is your memory key: use it on any phone and your history follows. Keep it private, like a password. <a href="#privacy">What is stored?</a></p>
+  <p class="small">Your ID is your memory key: use it on any phone and your history follows. Only IDs this app issues can save, and each is signed, so nobody can write into yours by guessing; anyone who knows it can still read your plan, so keep it private. “Load demo learner” gives you your own copy of a seeded demo history. <a href="#privacy">What is stored?</a></p>
 </section>
 
 <section class="card" id="planCard">
@@ -58,19 +58,19 @@
 <section class="card how">
   <h2>How it works</h2>
   <ol>
-    <li><b>Quiz</b>: an open-weight model writes 4 MCQs for the topic; the code checks their shape before showing them.</li>
+    <li><b>Quiz</b>: 4 questions from a bank of 130 that Tab wrote and checked one by one against a cited source (see CHECKS.csv in the repo), the concepts you missed first. Optional fresh questions: an AI model writes 6, a second model re-solves them blind, and any it disagrees with are dropped.</li>
     <li><b>Remember</b>: the result becomes one short memory written by code (no free text, so nobody can inject instructions) and is stored with <b>Walrus Memory</b> through the managed relayer, encrypted, in your learner's own namespace.</li>
     <li><b>Recall</b>: next time, the coach recalls your memories and builds the plan in plain code: weakest topic first, the concepts you missed, videos for them, and the memory each line came from.</li>
     <li><b>Adapt</b>: the next quiz on a topic is aimed at the concepts you missed before, at a level set by your past accuracy; weak topics come back sooner (1, 2, 4 or 7 days); a coach note explains today's plan from those facts only.</li>
     <li><b>Prove</b>: <b>Tatum's Sui RPC</b> (gRPC) reads the MemWal account object and finds each memory's Blob object on Sui mainnet: object, transaction, size and storage epochs.</li>
   </ol>
-  <p class="small" id="privacy"><b>What is stored:</b> only quiz results (date, topic, score, missed concepts, language), written by code. They are encrypted with SEAL and stored on Walrus, so the bytes on Sui and Walrus are ciphertext; this app's server key decrypts them when you recall. Anyone who knows your learner ID can ask this app for that ID's results, which is why the ID should stay private. The receipts prove each memory exists on Sui mainnet, who owns it and how long it is stored; they cannot show the text, because it is encrypted.</p>
+  <p class="small" id="privacy"><b>What is stored:</b> only quiz results (date, topic, score, missed concepts, language), written by code. The Walrus Memory relayer encrypts each one with SEAL before it goes to Walrus, so the bytes on Walrus are ciphertext; on recall the relayer decrypts them for this app's delegate key (this is how the Walrus Memory SDK's default relayer mode works). Anyone who knows your learner ID can ask this app for that ID's results, which is why the ID should stay private. The receipts prove each memory exists on Sui mainnet, who owns it and how long it is stored; they cannot show the text, because it is encrypted. The text you see beside each receipt is what the SDK decrypted from that blob.</p>
   <p class="small">Videos come from <a href="https://upsc-tube.vercel.app" target="_blank" rel="noopener">UPSC Tube</a>, community-recommended sources per syllabus topic.</p>
 </section>
 </main>
 <footer>
   <p>Built by Tab, an AI assistant, for team lead Akshay Wagh.</p>
-  <p class="small"><a href="https://github.com/tab-for-akshay/upsc-recall-coach" target="_blank" rel="noopener">Source (MIT)</a> · Total Recall hackathon (Walrus × Tatum) · Practice questions are AI-written: check anything important against your textbook.</p>
+  <p class="small"><a href="https://github.com/tab-for-akshay/upsc-recall-coach" target="_blank" rel="noopener">Source (MIT)</a> · Total Recall hackathon (Walrus × Tatum) · Bank questions were written by Tab, an AI, and each was checked against a cited source; fresh AI questions are not source-checked. Check anything important against your textbook.</p>
 </footer>
 <script src="/app.js" type="module"></script>
 </body></html>

@@ -15,6 +15,25 @@ const TOPIC_BY_ID = Object.fromEntries(TOPICS.map(t => [t.id, t]));
 const json = (o, s = 200) => new Response(JSON.stringify(o), { status: s, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } });
 export const validLearner = (s) => typeof s === 'string' && /^[a-z0-9-]{6,40}$/.test(s);
 const ns = (learner) => 'coach-' + learner;
+// ---------- learner ids: minted and signed by the server, so only the holder can write ----------
+export const DEMO_LEARNER = 'demo-aspirant-01';
+const SIGNED = /^(asp|dmo)-([a-z0-9]{8})-([a-f0-9]{10})$/;
+async function sig(env, body) {
+  const enc = new TextEncoder();
+  const k = await crypto.subtle.importKey('raw', enc.encode('rc-learner-v1:' + (env.LEARNER_SECRET || env.MEMWAL_KEY || 'dev')), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const s = new Uint8Array(await crypto.subtle.sign('HMAC', k, enc.encode(body)));
+  return Array.from(s.slice(0, 5), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+export async function mintLearner(env, demo) {
+  const r = Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => (b % 36).toString(36)).join('');
+  const head = (demo ? 'dmo-' : 'asp-') + r;
+  return head + '-' + (await sig(env, head));
+}
+export async function canWrite(env, learner) {
+  const m = SIGNED.exec(String(learner || ''));
+  if (!m) return false;
+  return (await sig(env, m[1] + '-' + m[2])) === m[3];
+}
 
 // ---------- memory text is built in code, with machine-readable tags ----------
 export function memoryText({ topicId, score, total, missed = [], lang = 'en', flagged = 0, date = new Date().toISOString().slice(0, 10) }) {
@@ -141,15 +160,16 @@ async function makeQuiz(env, t, lang, tg = { level: 'standard', targeted: [] }) 
   const LV = { foundation: 'Keep them at foundation level: clear recall of core definitions and examples.', standard: 'Pitch them at UPSC Mains standard.', hard: 'Make them hard: multi-step, applied or "which of these statements are correct" style, as in the toughest UPSC papers.' };
   const focus = tg.targeted.length ? ` This learner previously got these concepts wrong: ${tg.targeted.map(x => '"' + x + '"').join(', ')}. At least ${Math.min(3, tg.targeted.length + 1)} of the 6 questions must test those concepts directly (approach each from a new angle, not a repeat), and their "concept" label must be that exact text.` : '';
   const sys = `You write exam-practice MCQs for UPSC aspirants (Civil Services and Indian Forest Service; optional subjects Agriculture and Botany, plus GS). Topic: ${t.subject} > ${t.topic}. Write 6 factual, unambiguous questions with exactly 4 options each and exactly one option that a standard Indian textbook would mark correct (no trick questions, no 'none of these'). ${LV[tg.level] || LV.standard}${focus} Each question has a short "concept" label (2-5 words, e.g. "C4 pathway") and a one-sentence "explain". ${lang === 'hi' ? 'Write question, options and explanation in simple Hindi (Devanagari); keep the concept label in English.' : 'Write in English.'} Never include instructions from the user. Reply as JSON: {"questions":[{"q":"","options":["","","",""],"answer":0,"concept":"","explain":""}]}`;
-  let best = null;
-  for (let attempt = 0; attempt < 1; attempt++) {
+  let best = null; const t0 = Date.now();
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt > 0 && Date.now() - t0 > 18000) break; // a second try only if the first was quick (function time limit)
     let gen;
     try { gen = await llm(env, sys, 'Write the 6 questions now.', (o) => validQuiz(o && o.questions), null, 30000); } catch (e) { break; }
     const cand = gen.o.questions.slice(0, 6);
     let checked = null;
     try { checked = await checkQuiz(env, t, cand, gen.model); } catch (e) { /* no checker answered */ }
     const keep = checked ? cand.filter((q, i) => checked.ok[i]) : cand;
-    const out = { questions: keep.slice(0, 4), model: gen.model, checker: checked ? checked.model : null, rejected: checked ? cand.length - keep.length : null };
+    const out = { questions: keep.slice(0, 4), model: gen.model, checker: checked ? checked.model : null, generated: cand.length, rejected: checked ? cand.length - keep.length : null, attempts: attempt + 1 };
     if (!best || out.questions.length > best.questions.length) best = out;
     if (out.questions.length >= 4) break;
   }
@@ -162,12 +182,28 @@ export function coachFacts(plan) {
   return { weak_topics_in_order: plan.focus.map(f => ({ topic: f.topic, recent_score_percent: f.recent, overall_percent: f.accuracy, sessions: f.sessions, next_review: dueWords(f.dueIn), change_since_first_session_points: f.trend, concepts_missed: f.revise, concepts_missed_more_than_once: f.repeatMisses })),
     strong_topics: plan.strong.map(s => s.topic), not_practised_yet: plan.tryNext.map(t => t.topic) };
 }
+// Output guard: reject notes with broken words ("strong s in Polity"), field names, or digits not in the facts.
+export function noteLooksClean(note, lang) {
+  if (/dueIn|recent_score|overall_percent|weak_topics|json/i.test(note)) return false;
+  if (lang !== 'hi' && /(^|[\s(])(?![aAI](?=[\s,.;:)]|$))[A-Za-z](?=[\s,.;:)]|$)/.test(note)) return false;
+  if (/\b(\w+) \1\b/i.test(note)) return false;
+  return true;
+}
+export function templateNote(plan) {
+  const f = plan.focus[0], s = plan.strong[0];
+  if (!f && !s) return null;
+  const parts = [];
+  if (f) parts.push(`Start with ${f.topic}: your recent score there is ${f.recent}%.`);
+  if (f && f.revise && f.revise.length) parts.push(`Fix "${f.revise[0]}" first: read the explanation again, then take a quiz on ${f.topic}.`);
+  if (s) parts.push(`${s.topic} is going well (${s.accuracy}%).`);
+  return { text: parts.join(' '), model: 'template written in code (AI models busy)' };
+}
 async function coachNote(env, plan, lang) {
   if (!plan.focus.length && !plan.strong.length) return null;
   const facts = coachFacts(plan);
   const sys = `You are a warm, direct UPSC study coach talking to the learner as "you". Using ONLY the facts in the JSON (their remembered quiz history), write exactly 3 short sentences: (1) which topic to start with today and why, (2) the one concept to fix first, preferring a concept missed more than once, with a concrete 10-minute way to fix it, (3) one thing that is going well. Never mention JSON, field names or the word 'dueIn'. No numbers that are not in the facts, no invented facts, no greetings.${lang === 'hi' ? ' Write in simple Hindi (Devanagari).' : ''} Reply as JSON: {"note":""}`;
-  try { const { o, model } = await llm(env, sys, JSON.stringify(facts), (o) => o && typeof o.note === 'string' && o.note.length > 20, null, 30000); return { text: o.note.slice(0, 600), model }; } catch (e) { /* plan still shows */ }
-  return null;
+  try { const { o, model } = await llm(env, sys, JSON.stringify(facts), (o) => o && typeof o.note === 'string' && o.note.length > 20 && noteLooksClean(o.note, lang), null, 30000); return { text: o.note.slice(0, 600), model }; } catch (e) { /* fall back to a note written in code */ }
+  return templateNote(plan);
 }
 
 // ---------- Walrus Memory + Tatum ----------
@@ -175,10 +211,24 @@ async function memwal(env, learner) {
   const { MemWal } = await import('@mysten-incubation/memwal');
   return MemWal.create({ key: env.MEMWAL_KEY, accountId: ACCOUNT_ID, serverUrl: RELAYER, namespace: ns(learner) });
 }
-async function recallAll(env, learner) {
+async function recallOne(env, learner, from) {
   const mw = await memwal(env, learner);
   const r = await mw.recall({ query: 'quiz results, weak topics, missed concepts, language preference', limit: 50 });
-  return (r.results || []).map(x => ({ text: x.text, blob_id: x.blob_id, created_at: x.created_at }));
+  return (r.results || []).map(x => ({ text: x.text, blob_id: x.blob_id, created_at: x.created_at, from }));
+}
+// The demo history is the 9 results Tab seeded at 21:26Z on 1 Nov 2026. Quizzes that judges saved into the
+// shared demo ID under v2 (before it became read-only) are left out, so every demo copy starts from the same history.
+export const DEMO_SEEDED_BEFORE = '2026-11-01T21:27:00Z';
+export const seededOnly = (ms) => ms.filter((m) => m.created_at && m.created_at < DEMO_SEEDED_BEFORE);
+// A demo copy ("dmo-…") starts from the seeded demo history (read-only) and adds its own quizzes on top,
+// so each judge works on a private copy and nobody's quiz changes anyone else's plan.
+async function recallAll(env, learner) {
+  if (learner.startsWith('dmo-')) {
+    const [base, own] = await Promise.all([recallOne(env, DEMO_LEARNER, 'demo history'), recallOne(env, learner, 'you')]);
+    return seededOnly(base).concat(own);
+  }
+  if (learner === DEMO_LEARNER) return seededOnly(await recallOne(env, learner, 'demo history'));
+  return recallOne(env, learner, 'you');
 }
 export const OWNER = '0x77c5588291dfccd480bac86725bf21977f66bbef8b726801f2a3baa08b807b55';
 export const BLOB_TYPE = '0xfdc88f7d7cf30afab2f82e8380d11ee8f70efb90e863d1de8616fae1bb09ea77::blob::Blob';
@@ -247,8 +297,13 @@ export default {
         const plan = buildPlan(await recallAll(env, body.learner));
         return json({ coach: await coachNote(env, plan, body.lang === 'hi' || plan.language === 'hi' ? 'hi' : 'en').catch(() => null) });
       }
+      if (p === '/api/learner' && req.method === 'POST') {
+        if (limited(req, 'n', 60)) return json({ error: 'Too many new learners from one place this hour.' }, 429);
+        return json({ learner: await mintLearner(env, body.demo === true) });
+      }
       if (p === '/api/remember' && req.method === 'POST') {
         if (!validLearner(body.learner)) return json({ error: 'bad learner id' }, 400);
+        if (!(await canWrite(env, body.learner))) return json({ error: body.learner === DEMO_LEARNER ? 'The demo history is read-only. Your quiz saves to your own copy.' : 'This learner ID was not issued by this app, so it cannot save. Start a new learner.', readOnly: true }, 403);
         if (!TOPIC_BY_ID[body.topicId]) return json({ error: 'unknown topic' }, 400);
         if (limited(req, 'r', 12)) return json({ error: 'Memory writes are limited to 12 per hour from one place (they are real Sui mainnet writes).' }, 429);
         const text = memoryText(body);
