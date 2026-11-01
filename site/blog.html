@@ -1,0 +1,44 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Building UPSC Recall Coach: a study coach that remembers you, on Walrus Memory and Tatum</title>
+<meta name="description" content="How UPSC Recall Coach stores every quiz result with Walrus Memory on Sui mainnet, proves each memory through Tatum's Sui RPC, and builds tomorrow's plan from what you got wrong.">
+<meta property="og:title" content="Building UPSC Recall Coach: a study coach that remembers you">
+<meta property="og:description" content="Walrus Memory on Sui mainnet + Tatum Sui RPC: a UPSC practice coach whose plan changes with every quiz.">
+<link rel="stylesheet" href="/styles.css"><style>article{max-width:720px;margin:0 auto;padding:16px;line-height:1.6}article h2{margin-top:1.6em}code{overflow-wrap:anywhere}</style></head><body><article>
+<p class="small"><a href="/">← UPSC Recall Coach</a> · 1 November 2026 · Built by Tab, an AI assistant, for team lead Akshay Wagh.</p>
+<h1>A study coach that remembers you</h1>
+<p>UPSC aspirants practise dozens of syllabus topics over months. Most practice apps forget them when the tab closes, so every session opens on the same generic list. A good human coach does the opposite: “you keep missing the C4 pathway and soil CEC, start there today.” UPSC Recall Coach is our attempt at that coach, for the Total Recall hackathon (Walrus × Tatum), track Smart Agents for Real Life.</p>
+
+<h2>What it does</h2>
+<ol>
+<li><b>Quiz.</b> Pick one of 26 topics across Agriculture, Botany and General Studies. Four questions come from a bank of 130 that we wrote and then checked one by one against a cited source (the full log is <a href="https://github.com/tab-for-akshay/upsc-recall-coach/blob/main/CHECKS.csv">CHECKS.csv</a>). The concepts you missed before come first. You can also ask for fresh AI-written questions: one model writes six, a second model re-solves them blind, and any it disagrees with are dropped. If a question still looks wrong, flag it and it does not count.</li>
+<li><b>Remember.</b> The result becomes one short memory written by code: date, topic, score, missed concepts, language. It is stored with Walrus Memory on Sui mainnet, in the learner's own namespace.</li>
+<li><b>Recall and plan.</b> Next time, the app recalls the learner's memories and builds today's plan in plain code: topics due for review first (they come back after 1, 2, 4 or 7 days depending on recent accuracy), then the weakest, the concepts to fix, videos for them, and one topic never practised. A coach note puts that in three sentences, using only those computed facts.</li>
+<li><b>Prove.</b> A receipts panel reads Sui mainnet through Tatum and shows each memory as a Walrus Blob object: object ID, creating transaction, size and storage epochs, with explorer links.</li>
+</ol>
+
+<h2>How it uses Walrus Memory</h2>
+<p>We use the MemWal SDK (<code>@mysten-incubation/memwal</code>) in its default relayer mode. Each quiz result is one <code>remember</code> call; we wait for the job and get back the Walrus blob ID. The relayer SEAL-encrypts the memory before it is uploaded to Walrus, so the bytes stored are ciphertext; on <code>recall</code> it decrypts them for our delegate key. Each learner has a namespace (<code>coach-&lt;learner-id&gt;</code>), so one learner's history never mixes with another's.</p>
+<p>The model never decides what you know. Memories carry machine-readable tags (<code>[topic:…] [score:3/4] [lang:hi]</code>) written by code, and the planner parses those tags. The only text that comes from a quiz, the missed concept labels, has brackets stripped, so nobody can inject a fake tag.</p>
+<p>Learner IDs are minted and signed by the server. Only signed IDs can write, so nobody can add memories to someone else's history by guessing a name. The public demo learner is read-only: “Load demo learner” gives each visitor a private copy that reads the nine seeded demo results plus that visitor's own quizzes.</p>
+
+<h2>How it uses Tatum</h2>
+<p>Tatum's Sui mainnet endpoint is gRPC, at <code>sui-mainnet-grpc.gateway.tatum.io:443</code>. We connect with the Sui TypeScript SDK's gRPC client and the Tatum API key as metadata, then make three calls: <code>getChainIdentifier</code>; <code>getObject</code> on the MemWal account object (type, version, owner, delegate keys); and <code>listOwnedObjects</code> filtered to the Walrus <code>blob::Blob</code> type. Each Blob object carries its blob ID as a u256; the Walrus blob ID is that number's little-endian bytes in base64url. We convert it, match it to the memory we recalled, and show the object, the transaction that created it, its size, the epoch it was certified and the epoch its storage ends. A unit test pins the conversion against a real mainnet blob. A save shows its receipt straight away, and the panel re-checks all of them on demand.</p>
+<p>What a receipt proves, and what it does not: it proves the write happened on Sui mainnet, who owns it and how long Walrus keeps it. It cannot show the text, because the blob is encrypted. The text beside each receipt is what the SDK decrypted from that blob ID on recall.</p>
+
+<h2>How it learned over time</h2>
+<p>The plan page shows the same day twice: <i>without memory</i>, where everyone gets the most-recommended topics, and <i>with your Walrus memory</i>. On the demo learner, memory moves Soil science, Plant physiology and Agronomy to the top (recent scores of 38%, 38% and 50%), lists the concepts missed (the C4 pathway and cation exchange capacity were each missed twice) and links a video for each. In one test run we took a Plant physiology quiz as a demo copy and scored 1 out of 4. The plan reordered at once: Plant physiology moved to first place and came due for review the next day, and the coach note named the C4 pathway, now missed more than once, as the concept to fix first.</p>
+<p>Each round of outside review changed the product too. After round 1 we made the checked question bank the default, added question flagging, spaced repetition and the coach note. After round 2 came signed learner IDs, private demo copies and the full fact-check of the bank. The changes are listed in <a href="https://github.com/tab-for-akshay/upsc-recall-coach/blob/main/ROUNDS.md">ROUNDS.md</a>.</p>
+
+<h2>Fact-checking the questions</h2>
+<p>A study tool that teaches a wrong fact is worse than none. Each of the 130 bank questions has a source page whose text states the marked answer, a concept check (one defensible answer, every distractor wrong, nothing outdated), and blind answers from two other models. Both models matched the key on all 130. Three questions were fixed: the Forest (Conservation) Act, 1980 now also carries its 2023 name, Van (Sanrakshan Evam Samvardhan) Adhiniyam; the RBI inflation-target explanation adds the March 2026 renewal; and one concept label was renamed to match what its question tests.</p>
+
+<h2>Limits</h2>
+<ul>
+<li>Fresh AI questions are checked by a second model only, not against sources, and the quiz says so.</li>
+<li>Anyone who knows a learner ID can read that learner's plan, so treat the ID like a password.</li>
+<li>Memory writes are real mainnet writes, so saves are rate-limited.</li>
+<li>Free AI models are sometimes busy. The plan never depends on them, and the coach note falls back to a short note written in code.</li>
+</ul>
+<p>Try it: <a href="/">upsc-recall-coach.vercel.app</a> · Code (MIT): <a href="https://github.com/tab-for-akshay/upsc-recall-coach">github.com/tab-for-akshay/upsc-recall-coach</a></p>
+<p class="small">Built by Tab, an AI assistant, for team lead Akshay Wagh.</p>
+</article></body></html>
